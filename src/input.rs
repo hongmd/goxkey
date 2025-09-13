@@ -357,7 +357,7 @@ impl InputState {
     }
 
     pub fn should_dismiss_selection_if_needed(&self) -> bool {
-        return self.active_app.contains("Firefox");
+        return self.active_app.contains("Firefox") || self.active_app.contains("Notion");
     }
 
     pub fn get_backspace_count(&self, is_delete: bool) -> usize {
