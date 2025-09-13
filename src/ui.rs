@@ -1,3 +1,5 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use crate::{
@@ -92,6 +94,7 @@ pub struct UIDataAdapter {
     // Macro config
     is_macro_enabled: bool,
     macro_table: Arc<Vec<MacroEntry>>,
+    macro_table_hash: u64, // Cache for macro table hash to avoid rebuilding
     new_macro_from: String,
     new_macro_to: String,
     // Hotkey config
@@ -115,6 +118,7 @@ impl UIDataAdapter {
             is_auto_toggle_enabled: false,
             is_macro_enabled: false,
             macro_table: Arc::new(Vec::new()),
+            macro_table_hash: 0,
             new_macro_from: String::new(),
             new_macro_to: String::new(),
             super_key: true,
@@ -138,16 +142,27 @@ impl UIDataAdapter {
         self.is_macro_enabled = input_state.is_macro_enabled();
         self.is_auto_toggle_enabled = input_state.is_auto_toggle_enabled();
         self.launch_on_login = is_launch_on_login();
-        self.macro_table = Arc::new(
-            input_state
-                .get_macro_table()
-                .iter()
-                .map(|(source, target)| MacroEntry {
-                    from: source.to_string(),
-                    to: target.to_string(),
-                })
-                .collect::<Vec<MacroEntry>>(),
-        );
+
+        // Only rebuild macro_table if it has changed
+        let config = crate::config::CONFIG_MANAGER.lock().unwrap();
+        let current_macro_table = config.get_macro_table();
+        let current_macro_table_ref = current_macro_table.lock().unwrap();
+        let mut hasher = DefaultHasher::new();
+        current_macro_table_ref.hash(&mut hasher);
+        let current_hash = hasher.finish();
+
+        if current_hash != self.macro_table_hash {
+            self.macro_table = Arc::new(
+                current_macro_table_ref
+                    .iter()
+                    .map(|(source, target)| MacroEntry {
+                        from: source.to_string(),
+                        to: target.to_string(),
+                    })
+                    .collect::<Vec<MacroEntry>>(),
+            );
+            self.macro_table_hash = current_hash;
+        }
 
         let (modifiers, keycode) = input_state.get_hotkey().inner();
         self.super_key = modifiers.is_super();

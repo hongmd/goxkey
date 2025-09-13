@@ -5,7 +5,7 @@ use std::{
     io,
     io::{Result, Write},
     path::PathBuf,
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 use once_cell::sync::Lazy;
@@ -20,7 +20,7 @@ pub struct ConfigStore {
     vn_apps: Vec<String>,
     en_apps: Vec<String>,
     is_macro_enabled: bool,
-    macro_table: BTreeMap<String, String>,
+    macro_table: Arc<Mutex<BTreeMap<String, String>>>,
     is_auto_toggle_enabled: bool,
     is_gox_mode_enabled: bool,
     allowed_words: Vec<String>,
@@ -80,7 +80,7 @@ impl ConfigStore {
             "{} = {}",
             MACRO_ENABLED_CONFIG_KEY, self.is_macro_enabled
         )?;
-        for (k, v) in self.macro_table.iter() {
+        for (k, v) in self.macro_table.lock().unwrap().iter() {
             writeln!(file, "{} = {}", MACROS_CONFIG_KEY, build_kv_string(k, &v))?;
         }
         writeln!(
@@ -98,7 +98,7 @@ impl ConfigStore {
             vn_apps: Vec::new(),
             en_apps: Vec::new(),
             is_macro_enabled: false,
-            macro_table: BTreeMap::new(),
+            macro_table: Arc::new(Mutex::new(BTreeMap::new())),
             is_auto_toggle_enabled: false,
             is_gox_mode_enabled: false,
             allowed_words: vec!["đc".to_string()],
@@ -126,7 +126,7 @@ impl ConfigStore {
                         }
                         MACROS_CONFIG_KEY => {
                             if let Some((k, v)) = parse_kv_string(right) {
-                                config.macro_table.insert(k, v);
+                                config.macro_table.lock().unwrap().insert(k, v);
                             }
                         }
                         GOX_MODE_CONFIG_KEY => {
@@ -162,11 +162,11 @@ impl ConfigStore {
     }
 
     pub fn is_vietnamese_app(&self, app_name: &str) -> bool {
-        self.vn_apps.contains(&app_name.to_string())
+        self.vn_apps.iter().any(|s| s == app_name)
     }
 
     pub fn is_english_app(&self, app_name: &str) -> bool {
-        self.en_apps.contains(&app_name.to_string())
+        self.en_apps.iter().any(|s| s == app_name)
     }
 
     pub fn add_vietnamese_app(&mut self, app_name: &str) {
@@ -188,7 +188,7 @@ impl ConfigStore {
     }
 
     pub fn is_allowed_word(&self, word: &str) -> bool {
-        self.allowed_words.contains(&word.to_string())
+        self.allowed_words.iter().any(|s| s == word)
     }
 
     pub fn is_auto_toggle_enabled(&self) -> bool {
@@ -218,17 +218,17 @@ impl ConfigStore {
         self.save();
     }
 
-    pub fn get_macro_table(&self) -> &BTreeMap<String, String> {
-        &self.macro_table
+    pub fn get_macro_table(&self) -> Arc<Mutex<BTreeMap<String, String>>> {
+        Arc::clone(&self.macro_table)
     }
 
     pub fn add_macro(&mut self, from: String, to: String) {
-        self.macro_table.insert(from, to);
+        self.macro_table.lock().unwrap().insert(from, to);
         self.save();
     }
 
     pub fn delete_macro(&mut self, from: &String) {
-        self.macro_table.remove(from);
+        self.macro_table.lock().unwrap().remove(from);
         self.save();
     }
 

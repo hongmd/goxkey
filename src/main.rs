@@ -215,7 +215,7 @@ fn event_handler(
                                 }
 
                                 if keycode == KEY_TAB || keycode == KEY_SPACE {
-                                    if let Some(macro_target) = input_state.get_macro_target().cloned() {
+                                    if let Some(macro_target) = input_state.get_macro_target() {
                                         debug!("Macro: {}", macro_target);
                                         drop(input_state);
                                         do_macro_replace(handle, &macro_target);

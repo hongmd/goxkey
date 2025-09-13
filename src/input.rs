@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
-use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Mutex};
+use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Arc, sync::Mutex};
 
 use druid::{Data, Target};
 use log::debug;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use rdev::{Keyboard, KeyboardState};
 use vi::TransformResult;
 
@@ -146,6 +146,7 @@ impl Display for TypingMethod {
 pub struct InputState {
     buffer: String,
     display_buffer: String,
+    display_buffer_len: usize,
     method: TypingMethod,
     hotkey: Hotkey,
     enabled: bool,
@@ -153,7 +154,7 @@ pub struct InputState {
     previous_word: String,
     active_app: String,
     is_macro_enabled: bool,
-    macro_table: BTreeMap<String, String>,
+    macro_table: Arc<Mutex<BTreeMap<String, String>>>,
     temporary_disabled: bool,
     previous_modifiers: KeyModifier,
     is_auto_toggle_enabled: bool,
@@ -166,6 +167,7 @@ impl InputState {
         Self {
             buffer: String::new(),
             display_buffer: String::new(),
+            display_buffer_len: 0,
             method: TypingMethod::from_str(config.get_method()).unwrap(),
             hotkey: Hotkey::from_str(config.get_hotkey()),
             enabled: true,
@@ -229,11 +231,11 @@ impl InputState {
         self.should_track = true;
     }
 
-    pub fn get_macro_target(&self) -> Option<&String> {
+    pub fn get_macro_target(&self) -> Option<String> {
         if !self.is_macro_enabled {
             return None;
         }
-        self.macro_table.get(&self.display_buffer)
+        self.macro_table.lock().unwrap().get(&self.display_buffer).cloned()
     }
 
     pub fn get_typing_buffer(&self) -> &str {
@@ -313,13 +315,13 @@ impl InputState {
             .set_macro_enabled(self.is_macro_enabled);
     }
 
-    pub fn get_macro_table(&self) -> &BTreeMap<String, String> {
-        &self.macro_table
+    pub fn get_macro_table(&self) -> std::sync::MutexGuard<BTreeMap<String, String>> {
+        self.macro_table.lock().unwrap()
     }
 
     pub fn delete_macro(&mut self, from: &String) {
-        self.macro_table.remove(from);
         CONFIG_MANAGER.lock().unwrap().delete_macro(from);
+        // No need to update local cache as we share the same Arc<Mutex>
     }
 
     pub fn add_macro(&mut self, from: String, to: String) {
@@ -327,7 +329,7 @@ impl InputState {
             .lock()
             .unwrap()
             .add_macro(from.clone(), to.clone());
-        self.macro_table.insert(from, to);
+        // No need to update local cache as we share the same Arc<Mutex>
     }
 
     pub fn should_transform_keys(&self, c: &char) -> bool {
@@ -359,11 +361,11 @@ impl InputState {
     }
 
     pub fn get_backspace_count(&self, is_delete: bool) -> usize {
-        let dp_len = self.display_buffer.chars().count();
+        let dp_len = self.display_buffer_len;
         let backspace_count = if is_delete && dp_len >= 1 {
             dp_len
         } else {
-            dp_len - 1
+            dp_len.saturating_sub(1)
         };
 
         // Add an extra backspace to compensate the initial text selection deletion.
@@ -379,6 +381,7 @@ impl InputState {
 
     pub fn replace(&mut self, buf: &str) {
         self.display_buffer = buf.to_string();
+        self.display_buffer_len = self.display_buffer.chars().count();
     }
 
     pub fn push(&mut self, c: char) {
@@ -386,11 +389,13 @@ impl InputState {
             if first_char.is_numeric() {
                 self.buffer.remove(0);
                 self.display_buffer.remove(0);
+                self.display_buffer_len -= 1;
             }
         }
         if self.buffer.len() <= MAX_POSSIBLE_WORD_LENGTH {
             self.buffer.push(c);
             self.display_buffer.push(c);
+            self.display_buffer_len += 1;
             debug!(
                 "Input buffer: {:?} - Display buffer: {:?}",
                 self.buffer, self.display_buffer
@@ -399,7 +404,9 @@ impl InputState {
     }
 
     pub fn pop(&mut self) {
-        self.display_buffer.pop();
+        if self.display_buffer.pop().is_some() {
+            self.display_buffer_len -= 1;
+        }
         self.buffer = self.display_buffer.clone();
         if self.buffer.is_empty() {
             self.new_word();
@@ -407,9 +414,10 @@ impl InputState {
     }
 
     pub fn clear(&mut self) {
-        self.previous_word = self.buffer.to_owned();
-        self.buffer.clear();
         self.display_buffer.clear();
+        self.display_buffer_len = 0;
+        self.buffer = self.display_buffer.clone();
+        self.new_word();
     }
 
     pub fn get_previous_word(&self) -> &str {
