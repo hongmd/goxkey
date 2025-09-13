@@ -377,8 +377,8 @@ impl InputState {
         }
     }
 
-    pub fn replace(&mut self, buf: String) {
-        self.display_buffer = buf;
+    pub fn replace(&mut self, buf: &str) {
+        self.display_buffer = buf.to_string();
     }
 
     pub fn push(&mut self, c: char) {

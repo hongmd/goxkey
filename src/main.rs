@@ -45,7 +45,7 @@ fn do_transform_keys(handle: Handle, is_delete: bool) -> bool {
             _ = send_backspace(handle, backspace_count);
             _ = send_string(handle, &output);
             debug!("Sent: {:?}", output);
-            input_state.replace(output);
+            input_state.replace(&output);
             if transform_result.letter_modification_removed
                 || transform_result.tone_mark_removed
             {
@@ -65,17 +65,17 @@ fn do_restore_word(handle: Handle) {
     let typing_buffer = input_state.get_typing_buffer().to_string();
     _ = send_string(handle, &typing_buffer);
     debug!("Sent: {:?}", typing_buffer);
-    input_state.replace(typing_buffer);
+    input_state.replace(&typing_buffer);
 }
 
-fn do_macro_replace(handle: Handle, target: &String) {
+fn do_macro_replace(handle: Handle, target: &str) {
     let mut input_state = INPUT_STATE.lock().unwrap();
     let backspace_count = input_state.get_backspace_count(true);
     debug!("Backspace count: {}", backspace_count);
     _ = send_backspace(handle, backspace_count);
     _ = send_string(handle, target);
     debug!("Sent: {:?}", target);
-    input_state.replace(target.to_owned());
+    input_state.replace(target);
 }
 
 fn toggle_vietnamese() {
