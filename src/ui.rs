@@ -131,69 +131,68 @@ impl UIDataAdapter {
     }
 
     pub fn update(&mut self) {
-        unsafe {
-            self.is_enabled = INPUT_STATE.is_enabled();
-            self.typing_method = INPUT_STATE.get_method();
-            self.hotkey_display = INPUT_STATE.get_hotkey().to_string();
-            self.is_macro_enabled = INPUT_STATE.is_macro_enabled();
-            self.is_auto_toggle_enabled = INPUT_STATE.is_auto_toggle_enabled();
-            self.launch_on_login = is_launch_on_login();
-            self.macro_table = Arc::new(
-                INPUT_STATE
-                    .get_macro_table()
-                    .iter()
-                    .map(|(source, target)| MacroEntry {
-                        from: source.to_string(),
-                        to: target.to_string(),
-                    })
-                    .collect::<Vec<MacroEntry>>(),
-            );
+        let input_state = INPUT_STATE.lock().unwrap();
+        self.is_enabled = input_state.is_enabled();
+        self.typing_method = input_state.get_method();
+        self.hotkey_display = input_state.get_hotkey().to_string();
+        self.is_macro_enabled = input_state.is_macro_enabled();
+        self.is_auto_toggle_enabled = input_state.is_auto_toggle_enabled();
+        self.launch_on_login = is_launch_on_login();
+        self.macro_table = Arc::new(
+            input_state
+                .get_macro_table()
+                .iter()
+                .map(|(source, target)| MacroEntry {
+                    from: source.to_string(),
+                    to: target.to_string(),
+                })
+                .collect::<Vec<MacroEntry>>(),
+        );
 
-            let (modifiers, keycode) = INPUT_STATE.get_hotkey().inner();
-            self.super_key = modifiers.is_super();
-            self.ctrl_key = modifiers.is_control();
-            self.alt_key = modifiers.is_alt();
-            self.shift_key = modifiers.is_shift();
-            self.letter_key = format_letter_key(keycode);
+        let (modifiers, keycode) = input_state.get_hotkey().inner();
+        self.super_key = modifiers.is_super();
+        self.ctrl_key = modifiers.is_control();
+        self.alt_key = modifiers.is_alt();
+        self.shift_key = modifiers.is_shift();
+        self.letter_key = format_letter_key(keycode);
 
-            match self.is_enabled {
-                true => {
-                    let title = if INPUT_STATE.is_gox_mode_enabled() {
-                        "gõ"
-                    } else {
-                        "VN"
-                    };
-                    self.systray.set_title(title);
-                    self.systray
-                        .set_menu_item_title(SystemTrayMenuItemKey::Enable, "Tắt gõ tiếng Việt");
-                }
-                false => {
-                    let title = if INPUT_STATE.is_gox_mode_enabled() {
-                        match self.typing_method {
-                            TypingMethod::Telex => "gox",
-                            TypingMethod::VNI => "go4",
-                        }
-                    } else {
-                        "EN"
-                    };
-                    self.systray.set_title(title);
-                    self.systray
-                        .set_menu_item_title(SystemTrayMenuItemKey::Enable, "Bật gõ tiếng Việt");
-                }
+        match self.is_enabled {
+            true => {
+                let title = if input_state.is_gox_mode_enabled() {
+                    "gõ"
+                } else {
+                    "VN"
+                };
+                self.systray.set_title(title);
+                self.systray
+                    .set_menu_item_title(SystemTrayMenuItemKey::Enable, "Tắt gõ tiếng Việt");
             }
-            match self.typing_method {
-                TypingMethod::VNI => {
-                    self.systray
-                        .set_menu_item_title(SystemTrayMenuItemKey::TypingMethodTelex, "Telex");
-                    self.systray
-                        .set_menu_item_title(SystemTrayMenuItemKey::TypingMethodVNI, "VNI ✓");
-                }
-                TypingMethod::Telex => {
-                    self.systray
-                        .set_menu_item_title(SystemTrayMenuItemKey::TypingMethodTelex, "Telex ✓");
-                    self.systray
-                        .set_menu_item_title(SystemTrayMenuItemKey::TypingMethodVNI, "VNI");
-                }
+            false => {
+                let title = if input_state.is_gox_mode_enabled() {
+                    match self.typing_method {
+                        TypingMethod::Telex => "gox",
+                        TypingMethod::VNI => "go4",
+                    }
+                } else {
+                    "EN"
+                };
+                self.systray.set_title(title);
+                self.systray
+                    .set_menu_item_title(SystemTrayMenuItemKey::Enable, "Bật gõ tiếng Việt");
+            }
+        }
+        match self.typing_method {
+            TypingMethod::VNI => {
+                self.systray
+                    .set_menu_item_title(SystemTrayMenuItemKey::TypingMethodTelex, "Telex");
+                self.systray
+                    .set_menu_item_title(SystemTrayMenuItemKey::TypingMethodVNI, "VNI ✓");
+            }
+            TypingMethod::Telex => {
+                self.systray
+                    .set_menu_item_title(SystemTrayMenuItemKey::TypingMethodTelex, "Telex ✓");
+                self.systray
+                    .set_menu_item_title(SystemTrayMenuItemKey::TypingMethodVNI, "VNI");
             }
         }
     }
@@ -207,27 +206,21 @@ impl UIDataAdapter {
             });
         self.systray
             .set_menu_item_callback(SystemTrayMenuItemKey::Enable, || {
-                unsafe {
-                    INPUT_STATE.toggle_vietnamese();
-                }
+                INPUT_STATE.lock().unwrap().toggle_vietnamese();
                 UI_EVENT_SINK
                     .get()
                     .map(|event| Some(event.submit_command(UPDATE_UI, (), Target::Auto)));
             });
         self.systray
             .set_menu_item_callback(SystemTrayMenuItemKey::TypingMethodTelex, || {
-                unsafe {
-                    INPUT_STATE.set_method(TypingMethod::Telex);
-                }
+                INPUT_STATE.lock().unwrap().set_method(TypingMethod::Telex);
                 UI_EVENT_SINK
                     .get()
                     .map(|event| Some(event.submit_command(UPDATE_UI, (), Target::Auto)));
             });
         self.systray
             .set_menu_item_callback(SystemTrayMenuItemKey::TypingMethodVNI, || {
-                unsafe {
-                    INPUT_STATE.set_method(TypingMethod::VNI);
-                }
+                INPUT_STATE.lock().unwrap().set_method(TypingMethod::VNI);
                 UI_EVENT_SINK
                     .get()
                     .map(|event| Some(event.submit_command(UPDATE_UI, (), Target::Auto)));
@@ -241,9 +234,7 @@ impl UIDataAdapter {
     }
 
     pub fn toggle_vietnamese(&mut self) {
-        unsafe {
-            INPUT_STATE.toggle_vietnamese();
-        }
+        INPUT_STATE.lock().unwrap().toggle_vietnamese();
         self.update();
     }
 }
@@ -270,17 +261,15 @@ impl<W: Widget<UIDataAdapter>> Controller<UIDataAdapter, W> for UIController {
                     ctx.window().bring_to_front_and_focus();
                 }
                 if let Some(source) = cmd.get(DELETE_MACRO) {
-                    unsafe { INPUT_STATE.delete_macro(source) };
+                    INPUT_STATE.lock().unwrap().delete_macro(source);
                     data.update();
                 }
                 if cmd.get(ADD_MACRO).is_some()
                     && !data.new_macro_from.is_empty()
                     && !data.new_macro_to.is_empty()
                 {
-                    unsafe {
-                        INPUT_STATE
-                            .add_macro(data.new_macro_from.clone(), data.new_macro_to.clone())
-                    };
+                    INPUT_STATE.lock().unwrap()
+                        .add_macro(data.new_macro_from.clone(), data.new_macro_to.clone());
                     data.new_macro_from = String::new();
                     data.new_macro_to = String::new();
                     data.update();
@@ -303,48 +292,47 @@ impl<W: Widget<UIDataAdapter>> Controller<UIDataAdapter, W> for UIController {
         data: &UIDataAdapter,
         env: &Env,
     ) {
-        unsafe {
-            if old_data.typing_method != data.typing_method {
-                INPUT_STATE.set_method(data.typing_method);
-            }
+        let mut input_state = INPUT_STATE.lock().unwrap();
+        if old_data.typing_method != data.typing_method {
+            input_state.set_method(data.typing_method);
+        }
 
-            if old_data.launch_on_login != data.launch_on_login {
-                if let Err(err) = update_launch_on_login(data.launch_on_login) {
-                    error!("{}", err);
-                }
+        if old_data.launch_on_login != data.launch_on_login {
+            if let Err(err) = update_launch_on_login(data.launch_on_login) {
+                error!("{}", err);
             }
+        }
 
-            // Update hotkey
-            {
-                let mut new_mod = KeyModifier::new();
-                new_mod.apply(
-                    data.super_key,
-                    data.ctrl_key,
-                    data.alt_key,
-                    data.shift_key,
-                    data.capslock_key,
-                );
-                let key_code = letter_key_to_char(&data.letter_key);
-                if !INPUT_STATE.get_hotkey().is_match(new_mod, key_code) {
-                    INPUT_STATE.set_hotkey(&format!(
-                        "{}{}",
-                        new_mod,
-                        match key_code {
-                            Some(' ') => String::from("space"),
-                            Some(c) => c.to_string(),
-                            _ => String::new(),
-                        }
-                    ));
-                }
+        // Update hotkey
+        {
+            let mut new_mod = KeyModifier::new();
+            new_mod.apply(
+                data.super_key,
+                data.ctrl_key,
+                data.alt_key,
+                data.shift_key,
+                data.capslock_key,
+            );
+            let key_code = letter_key_to_char(&data.letter_key);
+            if !input_state.get_hotkey().is_match(new_mod, key_code) {
+                input_state.set_hotkey(&format!(
+                    "{}{}",
+                    new_mod,
+                    match key_code {
+                        Some(' ') => String::from("space"),
+                        Some(c) => c.to_string(),
+                        _ => String::new(),
+                    }
+                ));
             }
+        }
 
-            if old_data.is_macro_enabled != data.is_macro_enabled {
-                INPUT_STATE.toggle_macro_enabled();
-            }
+        if old_data.is_macro_enabled != data.is_macro_enabled {
+            input_state.toggle_macro_enabled();
+        }
 
-            if old_data.is_auto_toggle_enabled != data.is_auto_toggle_enabled {
-                INPUT_STATE.toggle_auto_toggle();
-            }
+        if old_data.is_auto_toggle_enabled != data.is_auto_toggle_enabled {
+            input_state.toggle_auto_toggle();
         }
         child.update(ctx, old_data, data, env);
     }

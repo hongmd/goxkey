@@ -106,63 +106,61 @@ pub fn get_home_dir() -> Option<PathBuf> {
 
 // List of keycode: https://eastmanreference.com/complete-list-of-applescript-key-codes
 fn get_char(keycode: CGKeyCode) -> Option<PressedKey> {
-    if let Some(key_map) = unsafe { KEYBOARD_LAYOUT_CHARACTER_MAP.get() } {
-        return match keycode {
-            0 => Some(PressedKey::Char(key_map[&'a'])),
-            1 => Some(PressedKey::Char(key_map[&'s'])),
-            2 => Some(PressedKey::Char(key_map[&'d'])),
-            3 => Some(PressedKey::Char(key_map[&'f'])),
-            4 => Some(PressedKey::Char(key_map[&'h'])),
-            5 => Some(PressedKey::Char(key_map[&'g'])),
-            6 => Some(PressedKey::Char(key_map[&'z'])),
-            7 => Some(PressedKey::Char(key_map[&'x'])),
-            8 => Some(PressedKey::Char(key_map[&'c'])),
-            9 => Some(PressedKey::Char(key_map[&'v'])),
-            11 => Some(PressedKey::Char(key_map[&'b'])),
-            12 => Some(PressedKey::Char(key_map[&'q'])),
-            13 => Some(PressedKey::Char(key_map[&'w'])),
-            14 => Some(PressedKey::Char(key_map[&'e'])),
-            15 => Some(PressedKey::Char(key_map[&'r'])),
-            16 => Some(PressedKey::Char(key_map[&'y'])),
-            17 => Some(PressedKey::Char(key_map[&'t'])),
-            31 => Some(PressedKey::Char(key_map[&'o'])),
-            32 => Some(PressedKey::Char(key_map[&'u'])),
-            34 => Some(PressedKey::Char(key_map[&'i'])),
-            35 => Some(PressedKey::Char(key_map[&'p'])),
-            37 => Some(PressedKey::Char(key_map[&'l'])),
-            38 => Some(PressedKey::Char(key_map[&'j'])),
-            40 => Some(PressedKey::Char(key_map[&'k'])),
-            45 => Some(PressedKey::Char(key_map[&'n'])),
-            46 => Some(PressedKey::Char(key_map[&'m'])),
-            18 => Some(PressedKey::Char(key_map[&'1'])),
-            19 => Some(PressedKey::Char(key_map[&'2'])),
-            20 => Some(PressedKey::Char(key_map[&'3'])),
-            21 => Some(PressedKey::Char(key_map[&'4'])),
-            22 => Some(PressedKey::Char(key_map[&'6'])),
-            23 => Some(PressedKey::Char(key_map[&'5'])),
-            25 => Some(PressedKey::Char(key_map[&'9'])),
-            26 => Some(PressedKey::Char(key_map[&'7'])),
-            28 => Some(PressedKey::Char(key_map[&'8'])),
-            29 => Some(PressedKey::Char(key_map[&'0'])),
-            27 => Some(PressedKey::Char(key_map[&'-'])),
-            33 => Some(PressedKey::Char(key_map[&'['])),
-            30 => Some(PressedKey::Char(key_map[&']'])),
-            41 => Some(PressedKey::Char(key_map[&';'])),
-            43 => Some(PressedKey::Char(key_map[&','])),
-            24 => Some(PressedKey::Char(key_map[&'='])),
-            42 => Some(PressedKey::Char(key_map[&'\\'])),
-            44 => Some(PressedKey::Char(key_map[&'/'])),
-            39 => Some(PressedKey::Char(key_map[&'\''])),
-            47 => Some(PressedKey::Char(key_map[&'.'])),
-            36 | 52 => Some(PressedKey::Char(KEY_ENTER)), // ENTER
-            49 => Some(PressedKey::Char(KEY_SPACE)),      // SPACE
-            48 => Some(PressedKey::Char(KEY_TAB)),        // TAB
-            51 => Some(PressedKey::Char(KEY_DELETE)),     // DELETE
-            53 => Some(PressedKey::Char(KEY_ESCAPE)),     // ESC
-            _ => Some(PressedKey::Raw(keycode)),
-        };
-    }
-    None
+    let key_map = KEYBOARD_LAYOUT_CHARACTER_MAP.lock().unwrap();
+    return match keycode {
+        0 => Some(PressedKey::Char(key_map[&'a'])),
+        1 => Some(PressedKey::Char(key_map[&'s'])),
+        2 => Some(PressedKey::Char(key_map[&'d'])),
+        3 => Some(PressedKey::Char(key_map[&'f'])),
+        4 => Some(PressedKey::Char(key_map[&'h'])),
+        5 => Some(PressedKey::Char(key_map[&'g'])),
+        6 => Some(PressedKey::Char(key_map[&'z'])),
+        7 => Some(PressedKey::Char(key_map[&'x'])),
+        8 => Some(PressedKey::Char(key_map[&'c'])),
+        9 => Some(PressedKey::Char(key_map[&'v'])),
+        11 => Some(PressedKey::Char(key_map[&'b'])),
+        12 => Some(PressedKey::Char(key_map[&'q'])),
+        13 => Some(PressedKey::Char(key_map[&'w'])),
+        14 => Some(PressedKey::Char(key_map[&'e'])),
+        15 => Some(PressedKey::Char(key_map[&'r'])),
+        16 => Some(PressedKey::Char(key_map[&'y'])),
+        17 => Some(PressedKey::Char(key_map[&'t'])),
+        31 => Some(PressedKey::Char(key_map[&'o'])),
+        32 => Some(PressedKey::Char(key_map[&'u'])),
+        34 => Some(PressedKey::Char(key_map[&'i'])),
+        35 => Some(PressedKey::Char(key_map[&'p'])),
+        37 => Some(PressedKey::Char(key_map[&'l'])),
+        38 => Some(PressedKey::Char(key_map[&'j'])),
+        40 => Some(PressedKey::Char(key_map[&'k'])),
+        45 => Some(PressedKey::Char(key_map[&'n'])),
+        46 => Some(PressedKey::Char(key_map[&'m'])),
+        18 => Some(PressedKey::Char(key_map[&'1'])),
+        19 => Some(PressedKey::Char(key_map[&'2'])),
+        20 => Some(PressedKey::Char(key_map[&'3'])),
+        21 => Some(PressedKey::Char(key_map[&'4'])),
+        22 => Some(PressedKey::Char(key_map[&'6'])),
+        23 => Some(PressedKey::Char(key_map[&'5'])),
+        25 => Some(PressedKey::Char(key_map[&'9'])),
+        26 => Some(PressedKey::Char(key_map[&'7'])),
+        28 => Some(PressedKey::Char(key_map[&'8'])),
+        29 => Some(PressedKey::Char(key_map[&'0'])),
+        27 => Some(PressedKey::Char(key_map[&'-'])),
+        33 => Some(PressedKey::Char(key_map[&'['])),
+        30 => Some(PressedKey::Char(key_map[&']'])),
+        41 => Some(PressedKey::Char(key_map[&';'])),
+        43 => Some(PressedKey::Char(key_map[&','])),
+        24 => Some(PressedKey::Char(key_map[&'='])),
+        42 => Some(PressedKey::Char(key_map[&'\\'])),
+        44 => Some(PressedKey::Char(key_map[&'/'])),
+        39 => Some(PressedKey::Char(key_map[&'\''])),
+        47 => Some(PressedKey::Char(key_map[&'.'])),
+        36 | 52 => Some(PressedKey::Char(KEY_ENTER)), // ENTER
+        49 => Some(PressedKey::Char(KEY_SPACE)),      // SPACE
+        48 => Some(PressedKey::Char(KEY_TAB)),        // TAB
+        51 => Some(PressedKey::Char(KEY_DELETE)),     // DELETE
+        53 => Some(PressedKey::Char(KEY_ESCAPE)),     // ESC
+        _ => Some(PressedKey::Raw(keycode)),
+    };
 }
 
 pub fn is_in_text_selection() -> bool {

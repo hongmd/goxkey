@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::{collections::HashMap, fmt::Display, str::FromStr};
+use std::{collections::HashMap, fmt::Display, str::FromStr, sync::Mutex};
 
 use druid::{Data, Target};
 use log::debug;
@@ -24,10 +24,10 @@ const TONE_DUPLICATE_PATTERNS: [&str; 17] = [
     "ooo", "ddd",
 ];
 
-pub static mut INPUT_STATE: Lazy<InputState> = Lazy::new(InputState::new);
-pub static mut HOTKEY_MODIFIERS: KeyModifier = KeyModifier::MODIFIER_NONE;
-pub static mut HOTKEY_MATCHING: bool = false;
-pub static mut HOTKEY_MATCHING_CIRCUIT_BREAK: bool = false;
+pub static INPUT_STATE: Lazy<Mutex<InputState>> = Lazy::new(|| Mutex::new(InputState::new()));
+pub static HOTKEY_MODIFIERS: Lazy<Mutex<KeyModifier>> = Lazy::new(|| Mutex::new(KeyModifier::MODIFIER_NONE));
+pub static HOTKEY_MATCHING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+pub static HOTKEY_MATCHING_CIRCUIT_BREAK: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
 pub const PREDEFINED_CHARS: [char; 47] = [
     'a', '`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 'q', 'w', 'e', 'r', 't',
@@ -91,7 +91,7 @@ pub fn get_key_from_char(c: char) -> rdev::Key {
     }
 }
 
-pub static mut KEYBOARD_LAYOUT_CHARACTER_MAP: OnceCell<HashMap<char, char>> = OnceCell::new();
+pub static KEYBOARD_LAYOUT_CHARACTER_MAP: Lazy<Mutex<HashMap<char, char>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn build_keyboard_layout_map(map: &mut HashMap<char, char>) {
     map.clear();
@@ -106,19 +106,10 @@ fn build_keyboard_layout_map(map: &mut HashMap<char, char>) {
 }
 
 pub fn rebuild_keyboard_layout_map() {
-    unsafe {
-        if let Some(map) = KEYBOARD_LAYOUT_CHARACTER_MAP.get_mut() {
-            debug!("Rebuild keyboard layout map...");
-            build_keyboard_layout_map(map);
-            debug!("Done");
-        } else {
-            debug!("Creating keyboard layout map...");
-            let mut map = HashMap::new();
-            build_keyboard_layout_map(&mut map);
-            _ = KEYBOARD_LAYOUT_CHARACTER_MAP.set(map);
-            debug!("Done");
-        }
-    }
+    let mut map = KEYBOARD_LAYOUT_CHARACTER_MAP.lock().unwrap();
+    debug!("Rebuild keyboard layout map...");
+    build_keyboard_layout_map(&mut map);
+    debug!("Done");
 }
 
 #[allow(clippy::upper_case_acronyms)]

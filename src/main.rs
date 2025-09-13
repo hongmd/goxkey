@@ -27,72 +27,70 @@ static UI_EVENT_SINK: OnceCell<ExtEventSink> = OnceCell::new();
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn do_transform_keys(handle: Handle, is_delete: bool) -> bool {
-    unsafe {
-        if let Ok((output, transform_result)) = INPUT_STATE.transform_keys() {
-            debug!("Transformed: {:?}", output);
-            if INPUT_STATE.should_send_keyboard_event(&output) || is_delete {
-                // This is a workaround for Firefox, where macOS's Accessibility API cannot work.
-                // We cannot get the selected text in the address bar, so we will go with another
-                // hacky way: Always send a space and delete it immediately. This will dismiss the
-                // current pre-selected URL and fix the double character issue.
-                if INPUT_STATE.should_dismiss_selection_if_needed() {
-                    _ = send_string(handle, " ");
-                    _ = send_backspace(handle, 1);
-                }
-
-                let backspace_count = INPUT_STATE.get_backspace_count(is_delete);
-                debug!("Backspace count: {}", backspace_count);
-                _ = send_backspace(handle, backspace_count);
-                _ = send_string(handle, &output);
-                debug!("Sent: {:?}", output);
-                INPUT_STATE.replace(output);
-                if transform_result.letter_modification_removed
-                    || transform_result.tone_mark_removed
-                {
-                    INPUT_STATE.stop_tracking();
-                }
-                return true;
+    let mut input_state = INPUT_STATE.lock().unwrap();
+    if let Ok((output, transform_result)) = input_state.transform_keys() {
+        debug!("Transformed: {:?}", output);
+        if input_state.should_send_keyboard_event(&output) || is_delete {
+            // This is a workaround for Firefox, where macOS's Accessibility API cannot work.
+            // We cannot get the selected text in the address bar, so we will go with another
+            // hacky way: Always send a space and delete it immediately. This will dismiss the
+            // current pre-selected URL and fix the double character issue.
+            if input_state.should_dismiss_selection_if_needed() {
+                _ = send_string(handle, " ");
+                _ = send_backspace(handle, 1);
             }
+
+            let backspace_count = input_state.get_backspace_count(is_delete);
+            debug!("Backspace count: {}", backspace_count);
+            _ = send_backspace(handle, backspace_count);
+            _ = send_string(handle, &output);
+            debug!("Sent: {:?}", output);
+            input_state.replace(output);
+            if transform_result.letter_modification_removed
+                || transform_result.tone_mark_removed
+            {
+                input_state.stop_tracking();
+            }
+            return true;
         }
     }
     false
 }
 
 fn do_restore_word(handle: Handle) {
-    unsafe {
-        let backspace_count = INPUT_STATE.get_backspace_count(true);
-        debug!("Backspace count: {}", backspace_count);
-        _ = send_backspace(handle, backspace_count);
-        let typing_buffer = INPUT_STATE.get_typing_buffer();
-        _ = send_string(handle, typing_buffer);
-        debug!("Sent: {:?}", typing_buffer);
-        INPUT_STATE.replace(typing_buffer.to_owned());
-    }
+    let mut input_state = INPUT_STATE.lock().unwrap();
+    let backspace_count = input_state.get_backspace_count(true);
+    debug!("Backspace count: {}", backspace_count);
+    _ = send_backspace(handle, backspace_count);
+    let typing_buffer = input_state.get_typing_buffer().to_string();
+    _ = send_string(handle, &typing_buffer);
+    debug!("Sent: {:?}", typing_buffer);
+    input_state.replace(typing_buffer);
 }
 
 fn do_macro_replace(handle: Handle, target: &String) {
-    unsafe {
-        let backspace_count = INPUT_STATE.get_backspace_count(true);
-        debug!("Backspace count: {}", backspace_count);
-        _ = send_backspace(handle, backspace_count);
-        _ = send_string(handle, target);
-        debug!("Sent: {:?}", target);
-        INPUT_STATE.replace(target.to_owned());
-    }
+    let mut input_state = INPUT_STATE.lock().unwrap();
+    let backspace_count = input_state.get_backspace_count(true);
+    debug!("Backspace count: {}", backspace_count);
+    _ = send_backspace(handle, backspace_count);
+    _ = send_string(handle, target);
+    debug!("Sent: {:?}", target);
+    input_state.replace(target.to_owned());
 }
 
-unsafe fn toggle_vietnamese() {
-    INPUT_STATE.toggle_vietnamese();
+fn toggle_vietnamese() {
+    INPUT_STATE.lock().unwrap().toggle_vietnamese();
     if let Some(event_sink) = UI_EVENT_SINK.get() {
         _ = event_sink.submit_command(UPDATE_UI, (), Target::Auto);
     }
 }
 
-unsafe fn auto_toggle_vietnamese() {
-    if !INPUT_STATE.is_auto_toggle_enabled() {
+fn auto_toggle_vietnamese() {
+    let mut input_state = INPUT_STATE.lock().unwrap();
+    if !input_state.is_auto_toggle_enabled() {
         return;
     }
-    let has_change = INPUT_STATE.update_active_app().is_some();
+    let has_change = input_state.update_active_app().is_some();
     if !has_change {
         return;
     }
@@ -107,145 +105,158 @@ fn event_handler(
     pressed_key: Option<PressedKey>,
     modifiers: KeyModifier,
 ) -> bool {
-    unsafe {
-        let pressed_key_code = pressed_key.and_then(|p| match p {
-            PressedKey::Char(c) => Some(c),
-            _ => None,
-        });
+    let mut input_state = INPUT_STATE.lock().unwrap();
+    let mut hotkey_modifiers = HOTKEY_MODIFIERS.lock().unwrap();
+    let mut hotkey_matching = HOTKEY_MATCHING.lock().unwrap();
+    let mut hotkey_matching_circuit_break = HOTKEY_MATCHING_CIRCUIT_BREAK.lock().unwrap();
+    let pressed_key_code = pressed_key.and_then(|p| match p {
+        PressedKey::Char(c) => Some(c),
+        _ => None,
+    });
 
-        if event_type == EventTapType::FlagsChanged {
-            if modifiers.is_empty() {
-                // Modifier keys are released
-                if HOTKEY_MATCHING && !HOTKEY_MATCHING_CIRCUIT_BREAK {
-                    toggle_vietnamese();
+    if event_type == EventTapType::FlagsChanged {
+        if modifiers.is_empty() {
+            // Modifier keys are released
+            if *hotkey_matching && !*hotkey_matching_circuit_break {
+                drop(input_state); // release lock before calling toggle_vietnamese
+                toggle_vietnamese();
+                input_state = INPUT_STATE.lock().unwrap(); // re-acquire
+                hotkey_modifiers = HOTKEY_MODIFIERS.lock().unwrap();
+                hotkey_matching = HOTKEY_MATCHING.lock().unwrap();
+                hotkey_matching_circuit_break = HOTKEY_MATCHING_CIRCUIT_BREAK.lock().unwrap();
+            }
+            *hotkey_modifiers = KeyModifier::MODIFIER_NONE;
+            *hotkey_matching = false;
+            *hotkey_matching_circuit_break = false;
+        } else {
+            hotkey_modifiers.set(modifiers, true);
+        }
+    }
+
+    let is_hotkey_matched = input_state
+        .get_hotkey()
+        .is_match(*hotkey_modifiers, pressed_key_code);
+    if *hotkey_matching && !is_hotkey_matched {
+        *hotkey_matching_circuit_break = true;
+    }
+    *hotkey_matching = is_hotkey_matched;
+
+    match pressed_key {
+        Some(pressed_key) => {
+            match pressed_key {
+                PressedKey::Raw(raw_keycode) => {
+                    if raw_keycode == RAW_KEY_GLOBE {
+                        drop(input_state);
+                        toggle_vietnamese();
+                        return true;
+                    }
+                    if raw_keycode == RAW_ARROW_UP || raw_keycode == RAW_ARROW_DOWN {
+                        input_state.new_word();
+                    }
+                    if raw_keycode == RAW_ARROW_LEFT || raw_keycode == RAW_ARROW_RIGHT {
+                        // TODO: Implement a better cursor tracking on each word here
+                        input_state.new_word();
+                    }
                 }
-                HOTKEY_MODIFIERS = KeyModifier::MODIFIER_NONE;
-                HOTKEY_MATCHING = false;
-                HOTKEY_MATCHING_CIRCUIT_BREAK = false;
-            } else {
-                HOTKEY_MODIFIERS.set(modifiers, true);
-            }
-        }
-
-        let is_hotkey_matched = INPUT_STATE
-            .get_hotkey()
-            .is_match(HOTKEY_MODIFIERS, pressed_key_code);
-        if HOTKEY_MATCHING && !is_hotkey_matched {
-            HOTKEY_MATCHING_CIRCUIT_BREAK = true;
-        }
-        HOTKEY_MATCHING = is_hotkey_matched;
-
-        match pressed_key {
-            Some(pressed_key) => {
-                match pressed_key {
-                    PressedKey::Raw(raw_keycode) => {
-                        if raw_keycode == RAW_KEY_GLOBE {
-                            toggle_vietnamese();
-                            return true;
-                        }
-                        if raw_keycode == RAW_ARROW_UP || raw_keycode == RAW_ARROW_DOWN {
-                            INPUT_STATE.new_word();
-                        }
-                        if raw_keycode == RAW_ARROW_LEFT || raw_keycode == RAW_ARROW_RIGHT {
-                            // TODO: Implement a better cursor tracking on each word here
-                            INPUT_STATE.new_word();
-                        }
-                    }
-                    PressedKey::Char(keycode) => {
-                        if INPUT_STATE.is_enabled() {
-                            match keycode {
-                                KEY_ENTER | KEY_TAB | KEY_SPACE | KEY_ESCAPE => {
-                                    let is_valid_word = vi::validation::is_valid_word(
-                                        INPUT_STATE.get_displaying_word(),
-                                    );
-                                    let is_allowed_word = INPUT_STATE
-                                        .is_allowed_word(INPUT_STATE.get_displaying_word());
-                                    let is_transformed_word = !INPUT_STATE
-                                        .get_typing_buffer()
-                                        .eq(INPUT_STATE.get_displaying_word());
-                                    if is_transformed_word && !is_valid_word && !is_allowed_word {
-                                        do_restore_word(handle);
-                                    }
-
-                                    if INPUT_STATE.previous_word_is_stop_tracking_words() {
-                                        INPUT_STATE.clear_previous_word();
-                                    }
-
-                                    if keycode == KEY_TAB || keycode == KEY_SPACE {
-                                        if let Some(macro_target) = INPUT_STATE.get_macro_target() {
-                                            debug!("Macro: {}", macro_target);
-                                            do_macro_replace(handle, macro_target)
-                                        }
-                                    }
-
-                                    INPUT_STATE.new_word();
+                PressedKey::Char(keycode) => {
+                    if input_state.is_enabled() {
+                        match keycode {
+                            KEY_ENTER | KEY_TAB | KEY_SPACE | KEY_ESCAPE => {
+                                let is_valid_word = vi::validation::is_valid_word(
+                                    input_state.get_displaying_word(),
+                                );
+                                let is_allowed_word = input_state
+                                    .is_allowed_word(input_state.get_displaying_word());
+                                let is_transformed_word = !input_state
+                                    .get_typing_buffer()
+                                    .eq(input_state.get_displaying_word());
+                                if is_transformed_word && !is_valid_word && !is_allowed_word {
+                                    drop(input_state);
+                                    do_restore_word(handle);
+                                    input_state = INPUT_STATE.lock().unwrap();
                                 }
-                                KEY_DELETE => {
-                                    if !modifiers.is_empty() && !modifiers.is_shift() {
-                                        INPUT_STATE.new_word();
-                                    } else {
-                                        INPUT_STATE.pop();
+
+                                if input_state.previous_word_is_stop_tracking_words() {
+                                    input_state.clear_previous_word();
+                                }
+
+                                if keycode == KEY_TAB || keycode == KEY_SPACE {
+                                    if let Some(macro_target) = input_state.get_macro_target().cloned() {
+                                        debug!("Macro: {}", macro_target);
+                                        drop(input_state);
+                                        do_macro_replace(handle, &macro_target);
+                                        input_state = INPUT_STATE.lock().unwrap();
                                     }
                                 }
-                                c => {
-                                    if "()[]{}<>/\\!@#$%^&*-_=+|~`,.;'\"/".contains(c)
-                                        || (c.is_numeric() && modifiers.is_shift())
-                                    {
-                                        // If special characters detected, dismiss the current tracking word
-                                        if c.is_numeric() {
-                                            INPUT_STATE.push(c);
-                                        }
-                                        INPUT_STATE.new_word();
-                                    } else {
-                                        // Otherwise, process the character
-                                        if modifiers.is_super() || modifiers.is_alt() {
-                                            INPUT_STATE.new_word();
-                                        } else if INPUT_STATE.is_tracking() {
-                                            INPUT_STATE.push(
-                                                if modifiers.is_shift() || modifiers.is_capslock() {
-                                                    c.to_ascii_uppercase()
-                                                } else {
-                                                    c
-                                                },
-                                            );
-                                            let ret = do_transform_keys(handle, false);
-                                            INPUT_STATE.stop_tracking_if_needed();
-                                            return ret;
-                                        }
-                                    }
+
+                                input_state.new_word();
+                            }
+                            KEY_DELETE => {
+                                if !modifiers.is_empty() && !modifiers.is_shift() {
+                                    input_state.new_word();
+                                } else {
+                                    input_state.pop();
                                 }
                             }
-                        } else {
-                            match keycode {
-                                KEY_ENTER | KEY_TAB | KEY_SPACE | KEY_ESCAPE => {
-                                    INPUT_STATE.new_word();
-                                }
-                                _ => {
-                                    if !modifiers.is_empty() {
-                                        INPUT_STATE.new_word();
+                            c => {
+                                if "()[]{}<>/\\!@#$%^&*-_=+|~`,.;'\"/".contains(c)
+                                    || (c.is_numeric() && modifiers.is_shift())
+                                {
+                                    // If special characters detected, dismiss the current tracking word
+                                    if c.is_numeric() {
+                                        input_state.push(c);
+                                    }
+                                    input_state.new_word();
+                                } else {
+                                    // Otherwise, process the character
+                                    if modifiers.is_super() || modifiers.is_alt() {
+                                        input_state.new_word();
+                                    } else if input_state.is_tracking() {
+                                        input_state.push(
+                                            if modifiers.is_shift() || modifiers.is_capslock() {
+                                                c.to_ascii_uppercase()
+                                            } else {
+                                                c
+                                            },
+                                        );
+                                        drop(input_state);
+                                        let ret = do_transform_keys(handle, false);
+                                        return ret;
                                     }
                                 }
                             }
                         }
-                    }
-                };
-            }
-            None => {
-                let previous_modifiers = INPUT_STATE.get_previous_modifiers();
-                if previous_modifiers.is_empty() {
-                    if modifiers.is_control() {
-                        if !INPUT_STATE.get_typing_buffer().is_empty() {
-                            do_restore_word(handle);
+                    } else {
+                        match keycode {
+                            KEY_ENTER | KEY_TAB | KEY_SPACE | KEY_ESCAPE => {
+                                input_state.new_word();
+                            }
+                            _ => {
+                                if !modifiers.is_empty() {
+                                    input_state.new_word();
+                                }
+                            }
                         }
-                        INPUT_STATE.set_temporary_disabled();
-                    }
-                    if modifiers.is_super() || event_type == EventTapType::Other {
-                        INPUT_STATE.new_word();
                     }
                 }
             }
         }
-        INPUT_STATE.save_previous_modifiers(modifiers);
+        None => {
+            let previous_modifiers = input_state.get_previous_modifiers();
+            if previous_modifiers.is_empty() {
+                if modifiers.is_control() {
+                    if !input_state.get_typing_buffer().is_empty() {
+                        drop(input_state);
+                        do_restore_word(handle);
+                        input_state = INPUT_STATE.lock().unwrap();
+                    }
+                    input_state.set_temporary_disabled();
+                }
+                if modifiers.is_super() || event_type == EventTapType::Other {
+                    input_state.new_word();
+                }
+            }
+        }
     }
     false
 }
@@ -277,7 +288,7 @@ fn main() {
             run_event_listener(&event_handler);
         });
         add_app_change_callback(|| {
-            unsafe { auto_toggle_vietnamese() };
+            auto_toggle_vietnamese();
         });
         _ = app.launch(UIDataAdapter::new());
     }
