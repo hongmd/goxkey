@@ -105,22 +105,48 @@ fn event_handler(
     pressed_key: Option<PressedKey>,
     modifiers: KeyModifier,
 ) -> bool {
-    let mut input_state = INPUT_STATE.lock().unwrap();
-    let mut hotkey_modifiers = HOTKEY_MODIFIERS.lock().unwrap();
-    let mut hotkey_matching = HOTKEY_MATCHING.lock().unwrap();
-    let mut hotkey_matching_circuit_break = HOTKEY_MATCHING_CIRCUIT_BREAK.lock().unwrap();
     let pressed_key_code = pressed_key.and_then(|p| match p {
         PressedKey::Char(c) => Some(c),
         _ => None,
     });
 
+    // Handle hotkey matching logic first, with minimal locks
+    let (is_hotkey_matched, should_toggle) = {
+        let hotkey_modifiers = HOTKEY_MODIFIERS.lock().unwrap();
+        let hotkey_matching = HOTKEY_MATCHING.lock().unwrap();
+        let hotkey_matching_circuit_break = HOTKEY_MATCHING_CIRCUIT_BREAK.lock().unwrap();
+
+        let input_state = INPUT_STATE.lock().unwrap();
+        let is_hotkey_matched = input_state
+            .get_hotkey()
+            .is_match(*hotkey_modifiers, pressed_key_code);
+        drop(input_state);
+
+        let should_toggle = if event_type == EventTapType::FlagsChanged {
+            if modifiers.is_empty() {
+                *hotkey_matching && !*hotkey_matching_circuit_break
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        (is_hotkey_matched, should_toggle)
+    };
+
+    // Update hotkey state
     if event_type == EventTapType::FlagsChanged {
+        let mut hotkey_modifiers = HOTKEY_MODIFIERS.lock().unwrap();
+        let mut hotkey_matching = HOTKEY_MATCHING.lock().unwrap();
+        let mut hotkey_matching_circuit_break = HOTKEY_MATCHING_CIRCUIT_BREAK.lock().unwrap();
+
         if modifiers.is_empty() {
-            // Modifier keys are released
-            if *hotkey_matching && !*hotkey_matching_circuit_break {
-                drop(input_state); // release lock before calling toggle_vietnamese
+            if should_toggle {
+                drop(hotkey_modifiers);
+                drop(hotkey_matching);
+                drop(hotkey_matching_circuit_break);
                 toggle_vietnamese();
-                input_state = INPUT_STATE.lock().unwrap(); // re-acquire
                 hotkey_modifiers = HOTKEY_MODIFIERS.lock().unwrap();
                 hotkey_matching = HOTKEY_MATCHING.lock().unwrap();
                 hotkey_matching_circuit_break = HOTKEY_MATCHING_CIRCUIT_BREAK.lock().unwrap();
@@ -131,16 +157,24 @@ fn event_handler(
         } else {
             hotkey_modifiers.set(modifiers, true);
         }
+
+        // Update matching state
+        if *hotkey_matching && !is_hotkey_matched {
+            *hotkey_matching_circuit_break = true;
+        }
+        *hotkey_matching = is_hotkey_matched;
+    } else {
+        // For non-flags events, just update matching state
+        let mut hotkey_matching = HOTKEY_MATCHING.lock().unwrap();
+        let mut hotkey_matching_circuit_break = HOTKEY_MATCHING_CIRCUIT_BREAK.lock().unwrap();
+        if *hotkey_matching && !is_hotkey_matched {
+            *hotkey_matching_circuit_break = true;
+        }
+        *hotkey_matching = is_hotkey_matched;
     }
 
-    let is_hotkey_matched = input_state
-        .get_hotkey()
-        .is_match(*hotkey_modifiers, pressed_key_code);
-    if *hotkey_matching && !is_hotkey_matched {
-        *hotkey_matching_circuit_break = true;
-    }
-    *hotkey_matching = is_hotkey_matched;
-
+    // Now handle the main input processing with INPUT_STATE lock
+    let mut input_state = INPUT_STATE.lock().unwrap();
     match pressed_key {
         Some(pressed_key) => {
             match pressed_key {
@@ -258,6 +292,7 @@ fn event_handler(
             }
         }
     }
+    input_state.save_previous_modifiers(modifiers);
     false
 }
 
